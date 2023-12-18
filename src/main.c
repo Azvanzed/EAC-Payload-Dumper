@@ -8,16 +8,16 @@
 #include "utils.h"
 #include "eac.h"
 
-volatile LONG g_isDumped = 0;
-PVOID g_VehHandle = NULL;
+volatile LONG g_is_dumped = 0;
+PVOID g_veh_handle = NULL;
 
 LONG WINAPI exception_handler(EXCEPTION_POINTERS* ExceptionInfo) {
     CONTEXT* ctx = ExceptionInfo->ContextRecord;
     EXCEPTION_RECORD* exception = ExceptionInfo->ExceptionRecord;
 
     if (exception->ExceptionCode == EXCEPTION_BREAKPOINT) {
-
-        printf("decrypting payload\n");
+        printf("trap reached!\n");
+        
         uint64_t addr = (uint64_t)exception->ExceptionAddress;
 
         /*        
@@ -53,20 +53,20 @@ LONG WINAPI exception_handler(EXCEPTION_POINTERS* ExceptionInfo) {
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
-        // remove trap
-        printf("removing call trap\n");
-        ASSERT(set_bytes((void*)addr, 0xE8, 1) == true);
-        ASSERT(RemoveVectoredExceptionHandler(g_VehHandle) != 0);
-            
         // dump to current directory with name of the address
         printf("saving payload\n");
         save_dump("eac_payload.dll", buffer, image_size);
         free(buffer);
 
         // report to thread
-        InterlockedIncrement(&g_isDumped);
+        InterlockedIncrement(&g_is_dumped);
         printf("payload dumped!\n");
 
+        // remove trap
+        printf("removing call trap\n");
+        ASSERT(set_bytes((void*)addr, 0xE8, 1) == true);
+        ASSERT(RemoveVectoredExceptionHandler(g_veh_handle) != 0);
+            
         // resume eac execution so no crash :)
         printf("resuming execution\n");
         ctx->Rip = addr;
@@ -81,7 +81,7 @@ LONG WINAPI exception_handler(EXCEPTION_POINTERS* ExceptionInfo) {
 DWORD WINAPI hook_thread(PVOID Param __attribute__((unused))) {
     printf("hook thread created!\n");
 
-    while (InterlockedExchange(&g_isDumped, g_isDumped) == 0) {
+    while (InterlockedExchange(&g_is_dumped, g_is_dumped) == 0) {
         void* curr = NULL;
         MEMORY_BASIC_INFORMATION mbi = { 0 };   
         while (VirtualQuery(curr, &mbi, sizeof(mbi)) > 0) {
@@ -90,7 +90,7 @@ DWORD WINAPI hook_thread(PVOID Param __attribute__((unused))) {
                 if (call == 0) goto skip;
 
                 // setup trap on the call
-                ASSERT(g_VehHandle = AddVectoredExceptionHandler(1, exception_handler));
+                ASSERT(g_veh_handle = AddVectoredExceptionHandler(1, exception_handler));
                 ASSERT(set_bytes((void*)call, 0xCC, 1) == true);
                 printf("trapped call @ 0x%llx\n", call);
             }
